@@ -2,3 +2,4 @@
 .idea
 weights/*
 images/*
+runs/detect/*
