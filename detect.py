@@ -3,7 +3,7 @@ import os
 import platform
 import sys
 from pathlib import Path
-
+import easyocr
 import torch
 
 FILE = Path(__file__).resolve()
@@ -144,6 +144,20 @@ def run(
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / f'{p.stem}.jpg', BGR=True)
 
+                # EasyOCR
+                reader = easyocr.Reader(['en'])
+                result = reader.readtext(im0)  # Use im0 instead of cropped image
+                for (bbox, text, prob) in result:
+                    if prob >= 0.6:
+                        print(f'Detected Text: {text} With probability: {prob}')
+                        # Draw the OCR text on the image
+                        top_left = tuple(map(int, bbox[0]))
+                        bottom_right = tuple(map(int, bbox[2]))
+                        #cv2.rectangle(im0, top_left, bottom_right, (0, 255, 0), 2)  # Draw rectangle around text
+                        cv2.putText(im0, text, (top_left[0], top_left[1] - 100), cv2.FONT_HERSHEY_SIMPLEX, 0.9,
+                                    (0, 0, 255), 2)
+                    else:
+                        print('Either the text is not detected or the probability is under 0.6')
             # Stream results
             im0 = annotator.result()
             if view_img:
