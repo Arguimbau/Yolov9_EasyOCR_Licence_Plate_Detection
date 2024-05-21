@@ -152,12 +152,46 @@ def run(
                         result = reader.readtext(cropped_img)
 
                         if result:
-                            text_lines = [f'{label} {line[1]} (OCR: {line[2]:.2f})' for line in result]
-                            # Add multiline text
+                            # Create text lines for annotation
+                            text_lines = [f'{names[c]} (YOLOv9 {conf:.2f})']
+                            for line in result:
+                                text_lines.append(f'{line[1]} (OCR: {line[2]:.2f})')
+
+                            # Increase the font scale and thickness for better readability
+                            font_scale = 0.7
+                            font_thickness = 2
+                            line_spacing = 25  # Vertical space between lines
+
+                            # Calculate the total height of the text block
+                            text_block_height = len(text_lines) * line_spacing
+
+                            # Calculate the width of the text block
+                            text_block_width = max(
+                                [cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0][0] for
+                                 text in text_lines]) + 10
+
+                            # Get the coordinates of the bounding box
+                            x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+                            extended_y1 = max(0,
+                                              y1 - text_block_height - 10)  # Ensure the extended box does not go out of the image
+
+                            # Draw the bounding box for the object
+                            cv2.rectangle(im0, (x1, y1), (x2, y2), colors(c, True), font_thickness)
+
+                            # Draw the red rectangle for the text block
+                            cv2.rectangle(im0, (x1, extended_y1), (x1 + text_block_width, y1), (0, 0, 255),
+                                          -1)  # Red filled rectangle
+
+                            # Draw each line of text within the red rectangle
                             for idx, text_line in enumerate(text_lines):
-                                y_offset = idx * 20  # Adjust this value for vertical spacing between lines
-                                cv2.putText(im0, text_line, (x1, y1 - y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                                            (255, 255, 255), 1)
+                                y_offset = extended_y1 + (
+                                            idx + 1) * line_spacing - 5  # Adjust this value for vertical spacing between lines
+                                # Draw text outline (black) for better visibility
+                                cv2.putText(im0, text_line, (x1 + 5, y_offset), cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                                            (0, 0, 0), font_thickness + 1, cv2.LINE_AA)
+                                # Draw the actual text (white)
+                                cv2.putText(im0, text_line, (x1 + 5, y_offset), cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                                            (255, 255, 255), font_thickness, cv2.LINE_AA)
 
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
