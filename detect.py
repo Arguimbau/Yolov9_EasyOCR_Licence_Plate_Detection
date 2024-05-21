@@ -1,3 +1,4 @@
+# Add the imports and initializations as per your original code
 import argparse
 import os
 import platform
@@ -19,27 +20,8 @@ from utils.general import (LOGGER, Profile, check_file, check_img_size, check_im
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
-
-def getOCR(im, coors):
-
-    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
-    im = im[y:h, x:w]
-    conf = 0.2
-    reader = easyocr.Reader(['en'])
-
-    gray = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
-    results = reader.readtext(gray)
-    ocr = ""
-
-    # Get OCR confidence
-
-    for result in results:
-        if len(results) == 1:
-            ocr = result[1]
-        if len(results) > 1 and len(results[1]) > 6 and results[2] > conf:
-            ocr = result[1]
-
-    return str(ocr) + "(" + str(conf) + ")"
+# Initialize EasyOCR
+reader = easyocr.Reader(['en'])
 
 @smart_inference_mode()
 def run(
@@ -64,7 +46,7 @@ def run(
         project=ROOT / 'runs/detect',  # save results to project/name
         name='exp',  # save results to project/name
         exist_ok=False,  # existing project/name ok, do not increment
-        line_thickness=3,  # bounding box thickness (pixels)
+        line_thickness=1,  # bounding box thickness (pixels)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
@@ -122,9 +104,6 @@ def run(
         with dt[2]:
             pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
 
-        # Second-stage classifier (optional)
-        # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
-
         # Process predictions
         for i, det in enumerate(pred):  # per image
             seen += 1
@@ -160,20 +139,69 @@ def run(
 
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
-                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} ({conf:.2f})')
-                        ocr = getOCR(im0, xyxy)
-                        if ocr != "":
-                            label = label + ocr
-                        annotator.box_label(xyxy, label, color=colors(c, True))
-                    if save_crop:
-                        save_one_box(xyxy, imc, file=save_dir / 'crops' / f'{p.stem}.jpg', BGR=True)
+                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+
+                        # Detect license plate text using EasyOCR
+                        x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+                        cropped_img = im0[y1:y2, x1:x2]
+                        result = reader.readtext(cropped_img)
+
+                        # Detect license plate text using EasyOCR
+                        x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+                        cropped_img = im0[y1:y2, x1:x2]
+                        result = reader.readtext(cropped_img)
+
+                        if result:
+                            # Create text lines for annotation
+                            text_lines = [f'{names[c]} (YOLOv9 {conf:.2f})']
+                            for line in result:
+                                text_lines.append(f'{line[1]} (OCR: {line[2]:.2f})')
+
+                            # Increase the font scale and thickness for better readability
+                            font_scale = 0.7
+                            font_thickness = 2
+                            line_spacing = 25  # Vertical space between lines
+
+                            # Calculate the total height of the text block
+                            text_block_height = len(text_lines) * line_spacing
+
+                            # Calculate the width of the text block
+                            text_block_width = max(
+                                [cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0][0] for
+                                 text in text_lines]) + 10
+
+                            # Get the coordinates of the bounding box
+                            x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+                            extended_y1 = max(0,
+                                              y1 - text_block_height - 10)  # Ensure the extended box does not go out of the image
+
+                            # Draw the bounding box for the object
+                            cv2.rectangle(im0, (x1, y1), (x2, y2), colors(c, True), font_thickness)
+
+                            # Draw the red rectangle for the text block
+                            cv2.rectangle(im0, (x1, extended_y1), (x1 + text_block_width, y1), (0, 0, 255),
+                                          -1)  # Red filled rectangle
+
+                            # Draw each line of text within the red rectangle
+                            for idx, text_line in enumerate(text_lines):
+                                y_offset = extended_y1 + (
+                                            idx + 1) * line_spacing - 5  # Adjust this value for vertical spacing between lines
+                                # Draw text outline (black) for better visibility
+                                cv2.putText(im0, text_line, (x1 + 5, y_offset), cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                                            (0, 0, 0), font_thickness + 1, cv2.LINE_AA)
+                                # Draw the actual text (white)
+                                cv2.putText(im0, text_line, (x1 + 5, y_offset), cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                                            (255, 255, 255), font_thickness, cv2.LINE_AA)
+
+                        if save_crop:
+                            save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
             # Stream results
             im0 = annotator.result()
             if view_img:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
-                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
+                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
                     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
@@ -198,24 +226,18 @@ def run(
                     vid_writer[i].write(im0)
 
         # Print time (inference-only)
-        LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
+        #LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
-    # Print results
-    t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
-    LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}' % t)
-    if save_txt or save_img:
-        s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
-        LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
-        strip_optimizer(weights[0])  # update model (to fix SourceChangeWarning)
+        strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
 
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'yolo.pt', help='model path or triton URL')
+    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'exp4/weights/best.pt', help='model path or triton URL')
     parser.add_argument('--source', type=str, default=ROOT / 'data/images', help='file/dir/URL/glob/screen/0(webcam)')
-    parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='(optional) dataset.yaml path')
-    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
+    parser.add_argument('--data', type=str, default=ROOT / 'data/coco.yaml', help='dataset.yaml path')
+    parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640, 640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='NMS IoU threshold')
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
@@ -225,7 +247,7 @@ def parse_opt():
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
     parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
     parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
-    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
+    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--visualize', action='store_true', help='visualize features')
@@ -240,13 +262,11 @@ def parse_opt():
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
     opt = parser.parse_args()
-    opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
-    print_args(vars(opt))
     return opt
 
 
 def main(opt):
-    # check_requirements(exclude=('tensorboard', 'thop'))
+    check_requirements(exclude=('tensorboard', 'thop'))
     run(**vars(opt))
 
 
