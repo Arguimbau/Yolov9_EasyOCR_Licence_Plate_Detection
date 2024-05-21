@@ -20,6 +20,27 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
 
+def getOCR(im, coors):
+
+    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
+    im = im[y:h, x:w]
+    conf = 0.2
+    reader = easyocr.Reader(['en'])
+
+    gray = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
+    results = reader.readtext(gray)
+    ocr = ""
+
+    # Get OCR confidence
+
+    for result in results:
+        if len(results) == 1:
+            ocr = result[1]
+        if len(results) > 1 and len(results[1]) > 6 and results[2] > conf:
+            ocr = result[1]
+
+    return str(ocr) + "(" + str(conf) + ")"
+
 @smart_inference_mode()
 def run(
         weights=ROOT / 'exp4/weights/best.pt',  # model path or triton URL
@@ -139,25 +160,14 @@ def run(
 
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
-                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} ({conf:.2f})')
+                        ocr = getOCR(im0, xyxy)
+                        if ocr != "":
+                            label = label + ocr
                         annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / f'{p.stem}.jpg', BGR=True)
 
-                # EasyOCR
-                reader = easyocr.Reader(['en'])
-                result = reader.readtext(im0)  # Use im0 instead of cropped image
-                for (bbox, text, prob) in result:
-                    if prob >= 0.6:
-                        print(f'Detected Text: {text} With probability: {prob}')
-                        # Draw the OCR text on the image
-                        top_left = tuple(map(int, bbox[0]))
-                        bottom_right = tuple(map(int, bbox[2]))
-                        #cv2.rectangle(im0, top_left, bottom_right, (0, 255, 0), 2)  # Draw rectangle around text
-                        cv2.putText(im0, text, (top_left[0], top_left[1] - 100), cv2.FONT_HERSHEY_SIMPLEX, 0.9,
-                                    (0, 0, 255), 2)
-                    else:
-                        print('Either the text is not detected or the probability is under 0.6')
             # Stream results
             im0 = annotator.result()
             if view_img:
