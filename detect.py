@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 import easyocr
 import torch
+import time
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLO root directory
@@ -25,7 +26,7 @@ reader = easyocr.Reader(['en'])
 
 @smart_inference_mode()
 def run(
-        weights=ROOT / 'exp4/weights/best.pt',  # model path or triton URL
+        weights=ROOT / 'weights/best.pt',  # model path or triton URL
         source=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
         data=ROOT / 'data/coco.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
@@ -53,6 +54,7 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
 ):
+    start_time = time.time()
     source = str(source)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -137,6 +139,9 @@ def run(
                         with open(f'{txt_path}.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
+                    # Log detected class and confidence
+                    LOGGER.info(f'Detected class: {names[int(cls)]}, Confidence: {conf:.2f}')
+
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
@@ -146,12 +151,11 @@ def run(
                         cropped_img = im0[y1:y2, x1:x2]
                         result = reader.readtext(cropped_img)
 
-                        # Detect license plate text using EasyOCR
-                        x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
-                        cropped_img = im0[y1:y2, x1:x2]
-                        result = reader.readtext(cropped_img)
-
+                        # Log OCR results
                         if result:
+                            LOGGER.info(f'OCR results for {names[c]}:')
+                            for line in result:
+                                LOGGER.info(f'Text: {line[1]}, Confidence: {line[2]:.2f}')
                             # Create text lines for annotation
                             text_lines = [f'{names[c]} (YOLOv9 {conf:.2f})']
                             for line in result:
@@ -226,7 +230,9 @@ def run(
                     vid_writer[i].write(im0)
 
         # Print time (inference-only)
-        #LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
+        elapsed_time = time.time() - start_time
+        LOGGER.info(f'{s}Done. ({elapsed_time:.2f}s)')
+
 
     if update:
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
@@ -234,7 +240,7 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'exp4/weights/best.pt', help='model path or triton URL')
+    parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'weights/best.pt', help='model path or triton URL')
     parser.add_argument('--source', type=str, default=ROOT / 'data/images', help='file/dir/URL/glob/screen/0(webcam)')
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco.yaml', help='dataset.yaml path')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640, 640], help='inference size h,w')
