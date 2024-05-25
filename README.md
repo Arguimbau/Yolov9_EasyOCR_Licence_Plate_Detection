@@ -17,9 +17,8 @@ Change the --device to:
 <li>Mac(silicon): mps</li>
 <li>Windows(CUDA): 0</li>
 </ul>
-<h1>The weight is too large for GitHub, so I recommend training the dataset yourself to get it
-</h1>
-The dataset can be found here:
+
+The dataset we trained on can be found here:
 https://universe.roboflow.com/mashinelearning/licence-plate-detection-wcfzj
 <br>
 
